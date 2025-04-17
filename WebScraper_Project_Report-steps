@@ -1,0 +1,226 @@
+Project Report: Dockerized Web Scraper and Flask API
+
+---
+
+ Assignment Overview
+
+Task:
+- Scrape a dynamic website using Node.js, Puppeteer, and Chromium.
+- Serve the scraped data using a Python Flask web server.
+- Use Docker multi-stage build to containerize the entire application.
+
+Objective:
+Create a lean, multi-stage Docker container that scrapes a given URL and serves the output as JSON.
+
+---
+
+Step-by-Step Process (From Launching AWS to Running the App)
+
+1] Launching an AWS EC2 Instance
+
+- Go to AWS Console
+- Launch a new **Ubuntu 22.04 LTS** EC2 instance
+- Allow inbound traffic on **port 22 (SSH)** and **port 5000 (Flask Server)**
+- Connect using SSH:
+
+```bash
+ssh -i your-key.pem ubuntu@your-ec2-public-ip
+
+
+2] Installing Docker
+
+```bash
+sudo apt update
+sudo apt install -y docker.io
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -aG docker $USER
+```
+
+Logout and re-login or use:
+```bash
+newgrp docker
+```
+
+3] Creating Project Files
+
+```bash
+mkdir yourrepo && cd yourrepo
+
+Create the following files:
+- `Dockerfile`
+- `scrape.js`
+- `server.py`
+- `package.json`
+- `requirements.txt`
+- `README.md`
+
+File Contents
+
+1. Dockerfile
+
+(Original version used)
+
+vi Dockerfile
+# Stage 1: Scraper
+FROM node:18-slim as scraper
+
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+
+# Install Chromium and dependencies
+RUN apt-get update && apt-get install -y \
+    chromium \
+    ca-certificates \
+    fonts-liberation \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgbm1 \
+    libnspr4 \
+    libnss3 \
+    libx11-xcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    xdg-utils \
+    wget && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+WORKDIR /app
+COPY package.json ./
+RUN npm install
+COPY scrape.js ./
+
+ARG SCRAPE_URL=https://news.ycombinator.com/
+ENV SCRAPE_URL=${SCRAPE_URL}
+
+RUN node scrape.js
+
+# Stage 2: Flask server
+FROM python:3.9-slim
+
+WORKDIR /app
+
+# Copy scraped data from previous stage
+COPY --from=scraper /app/scraped_data.json ./
+COPY server.py ./
+COPY requirements.txt ./
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+EXPOSE 5000
+CMD ["python", "server.py"]
+```
+
+2. vi scrape.js
+
+const fs = require('fs');
+const puppeteer = require('puppeteer');
+const url = process.env.SCRAPE_URL;
+(async () => {
+  if (!url) process.exit(1);
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH
+  });
+  const page = await browser.newPage();
+  await page.goto(url);
+  const data = await page.evaluate(() => ({
+    title: document.title,
+    heading: document.querySelector('h1')?.innerText || "No <h1> found"
+  }));
+  fs.writeFileSync('scraped_data.json', JSON.stringify(data, null, 2));
+  await browser.close();
+})();
+```
+
+3. vi server.py
+
+```python
+from flask import Flask, jsonify
+import json
+app = Flask(__name__)
+@app.route('/')
+def serve_data():
+    with open('scraped_data.json') as f:
+        data = json.load(f)
+    return jsonify(data)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
+```
+
+4. vi package.json
+
+{
+  "name": "scraper",
+  "version": "1.0.0",
+  "dependencies": {
+    "puppeteer": "^21.3.8"
+  }
+}
+```
+
+5. vi requirements.txt
+
+flask
+
+
+6. vi README.md
+
+```markdown
+Puppeteer Scraper + Flask API
+
+Build the Docker Image
+```bash
+docker build -t puppeteer-flask-app --build-arg SCRAPE_URL=https://news.ycombinator.com .
+```
+
+7. Run the Container
+```bash
+docker run -p 5000:5000 puppeteer-flask-app
+```
+
+8. Access the API
+
+Visit: http://localhost:5000
+
+
+---
+
+___ Output___
+
+{
+  "title": "Hacker News",
+  "heading": "No <h1> found"
+}
+
+
+ ✅ Summary of Commands Used
+```bash
+* SSH into instance
+ssh -i your-key.pem ubuntu@your-ip
+
+* Install Docker
+sudo apt update && sudo apt install -y docker.io
+sudo systemctl start docker && sudo systemctl enable docker
+sudo usermod -aG docker $USER
+newgrp docker
+
+* Create files
+mkdir yourrepo && cd yourrepo
+nano Dockerfile scrape.js server.py package.json requirements.txt README.md
+
+* Build and run
+docker build -t puppeteer-flask-app --build-arg SCRAPE_URL=https://news.ycombinator.com .
+docker run -p 5000:5000 puppeteer-flask-app
+
+
+ **Project Complete**
+
+
